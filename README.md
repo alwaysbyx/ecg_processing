@@ -6,6 +6,17 @@
 Data should be like the following form:  
 ![center](./image/dataform.png)
 
+#### R peak
+```python
+# def R_peak(file,sampling_rate=500,lead='I',plot=False)
+# lead: ['I', 'II, 'V1','V2','V3','V4','V5','V6']
+# return: (np.array)Rpeaks
+import ecg
+rpeak = ecg.R_peak(df)
+rpeak = ecg.R_peak(df,lead='II',plot=True)
+```
+![center](./image/peak.png)
+
 #### segment ecg signals 
 ```python
 # def segment(file, method='base', lead='I', locate=False, sampling_rate=500, plot=True)
@@ -72,3 +83,18 @@ _,_,epochs = ecg.segment(df,lead='V4',locate = True)
 ```
 ![center](./image/locate_segment.png)
 
+
+### Updated
+#### locate P QRS T waves
+
+According to *中华人民共和国医药行业标准 医用电气设备 第2-51部分：记录和分析型单道和多
+道心电图机安全和基本性能专用要求* P49 rewrite the delineating method
+```python
+# ecg_delineate(file,sample_rate=500,plot=True,subplot=True)
+# plot: True (automatically plot the signals and location boundaries)
+# return: information of [Pon,Poff,QRSon,QRSoff,Toff]
+import ecg
+location = ecg.ecg_delineate(df)
+```
+![center](./image/delineate.png)
+ 

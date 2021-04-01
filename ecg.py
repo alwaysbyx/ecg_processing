@@ -6,8 +6,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from signal_filter import signal_filter
 from signal_delineator import dwt_ecg_delineator
+from signal_delineat_byx import denpendent_delineate
 cmp = ['red','orange','yellow','green','cyan',
       'blue','purple','pink','magenta','brown']
+
+def ecg_delineate(file,sample_rate=500,plot=True,subplot=True):
+    signals, rpeak = avg_segment(file, method='average', plot=False)
+    location = denpendent_delineate(signals,rpeak,sampling_rate=sample_rate, plot=plot, subplot=subplot)
+    return location
+
 
 def delineate(file,lead='I',start=None,end=None,location=None,sampling_rate=500,plot_type='line'):
     if start==None:
@@ -82,14 +89,18 @@ def filtered(file,lead='I',sampling_rate=500,plot=False):
 
 # 定位R波
 def R_peak(file,sampling_rate=500,lead='I',plot=False):
+    def _get_mean_top_n(data,n):
+        return np.mean(data[np.argpartition(data, n)[-n:]])
     df = file.copy()
     if lead in ['V1','V2','V3']:
         df[lead] = df[lead].map(lambda x:-x)
     df = filtered(df,lead)
     df['gradient'] = abs(np.gradient(df['filtered']))
-    R_peak_min = df['gradient'].quantile(0.95)
+    R_peak_min = max(df['gradient']) * 0.35
+    r = max(df['filtered'])*0.3
     #print(sampling_rate)
-    T = 0.25 * sampling_rate
+    T1 = 0.22 * sampling_rate
+    T = T1
     t = 0.04 * sampling_rate
     #print(R_peak_min)
     #df['I_1'] = pd.Series(np.gradient(df['I']))
@@ -98,35 +109,42 @@ def R_peak(file,sampling_rate=500,lead='I',plot=False):
     peaks = []
     peak = []
     #r_idx = []
+    le = 6
+    flag = True
     for idx, v in enumerate(df['R']):
         if v==R_peak_min:
             if len(peak)==0:
                 peak.append(idx)
             else:
-                if idx>peak[-1]+T:
-                    if len(peak)>=2:
-                        seg = pd.Series(df['filtered'][peak[0]:peak[-1]])
+                if idx > np.mean(peak[-1])+T1:
+                    #print(idx)
+                    if len(peak) >= 3:
+                        seg = pd.Series(df['filtered'][peak[0]:min(peak[-1]+30,len(df['filtered']))])
                         maxidx = seg.idxmax()
-                    else:
-                        maxidx = peak[0]
-                    peaks.append(maxidx)
+                        if (len(peaks)==0 or peaks[-1]+T < maxidx) and seg[maxidx] > r:
+                            peaks.append(maxidx)
+                            if len(peaks) > 1:
+                                T = int((peaks[-1] - peaks[0]) / (len(peaks) - 1) / 2)
                     peak = []
                 else:
                     peak.append(idx)
+
         #if v==R_peak_min:
         #    r_idx.append(idx)
     if len(peak)>=2:
         maxidx = pd.Series(df[lead][peak[0]:peak[-1]]).idxmax()
-        peaks.append(maxidx)
+        if peaks[-1]+T < maxidx:
+            peaks.append(maxidx)
     if plot:
         ymax = max(file[lead])+10
         ymin = min(file[lead])-10
         plt.figure(figsize=(12,5))
         plt.plot(file[lead],label=lead)
         #plt.plot(df['filtered'],color='yellow')
-        plt.plot(df['gradient'],color='pink',label='gradient')
-        plt.plot(df['R'], color='green',label='R')
+        #plt.plot(df['gradient'],color='pink',label='gradient')
+        #plt.plot(df['R'], color='green',label='R')
         plt.vlines(peaks,ymin,ymax,colors='red',linestyles="dashed",label='R_peak')
+        #plt.axhline(y=r)
         plt.legend()
         plt.show()
     return np.array(peaks)
@@ -155,8 +173,12 @@ def avg_segment(file,method='average',lead='all',sampling_rate=500,plot=True):
     if lead=='all':
         r = []
         rpeaks = R_peak(df, sampling_rate=sampling_rate, lead='I', plot=False)
+        rpeaks0 = rpeaks[:-1]
+        rpeaks1 = rpeaks[1:]
+        idxpred = int(0.5 * np.mean(rpeaks1 - rpeaks0))
         for lead in df.columns:
-            ecg_signal = df[lead]
+            df = baseline_drift(df, lead, sampling_rate)
+            ecg_signal = df['clean']
             epochs_start, epochs_end, epochs = _ecg_segment_window(
                 ecg_signal=ecg_signal, rpeaks=rpeaks, sampling_rate=sampling_rate
             )
@@ -171,10 +193,14 @@ def avg_segment(file,method='average',lead='all',sampling_rate=500,plot=True):
         if plot:
             plt.legend()
             plt.show()
-        return r
+        return r, idxpred
     elif lead in df.columns:
-        epochs_start, epochs_end, epochs = segment(df, method='base', lead=lead, sampling_rate=sampling_rate, plot=False)
+        epochs_start, epochs_end, epochs, _ = segment(df, method='base', lead=lead, sampling_rate=sampling_rate, plot=False)
+        rpeaks = R_peak(df, sampling_rate=sampling_rate, lead=lead, plot=False)
         x_idx = np.linspace(epochs_start, epochs_end, len(epochs[0]))
+        rpeaks0 = rpeaks[:-1]
+        rpeaks1 = rpeaks[1:]
+        idxpred = int(0.5 * np.mean(rpeaks1 - rpeaks0))
         if method == 'average':
             avg = np.mean(epochs,axis=0)
         elif method == 'med':
@@ -183,7 +209,7 @@ def avg_segment(file,method='average',lead='all',sampling_rate=500,plot=True):
             plt.plot(x_idx,avg,linewidth =2.0,label=lead)
             plt.legend()
             plt.show()
-        return avg
+        return avg, idxpred
 
 def segment(file, method='base', lead='I', locate=False, r=None,sampling_rate=500, plot=True):
     df = file.copy()
@@ -217,7 +243,7 @@ def segment(file, method='base', lead='I', locate=False, r=None,sampling_rate=50
         plt.legend(loc=2, bbox_to_anchor=(1.05,1.0),borderaxespad = 0.)
         plt.title("segmented heartbeats using %s" % method)
         plt.show()
-    return epochs_start, epochs_end, np.array(epochs), r
+    return epochs_start, epochs_end, epochs, r
 
 def _delineate_transform(x,feature,start,end,epochs):
     New = np.array(x,dtype='float32')
@@ -266,11 +292,11 @@ def _ecg_segment_window(ecg_signal,rpeaks, sampling_rate=500):
     m = heart_rate / 60
 
     # Window
-    epochs_start = -0.4 / m
-    epochs_end = 0.6 / m
+    epochs_start = -0.5 / m
+    epochs_end = 0.65 / m
 
-    idx_pre = int(0.4 * np.mean(rpeaks1-rpeaks0))
-    idx_after =int(0.6 * np.mean(rpeaks1-rpeaks0))
+    idx_pre = int(0.5 * np.mean(rpeaks1-rpeaks0))
+    idx_after =int(0.65 * np.mean(rpeaks1-rpeaks0))
 
     # Adjust for high heart rates
     if heart_rate >= 80:
