@@ -7,13 +7,15 @@ import matplotlib.pyplot as plt
 from signal_filter import signal_filter
 from signal_delineator import dwt_ecg_delineator
 from signal_delineat_byx import denpendent_delineate
+import plotly.graph_objects as go
+from scipy import stats
 cmp = ['red','orange','yellow','green','cyan',
       'blue','purple','pink','magenta','brown']
 
 def ecg_delineate(file,sample_rate=500,plot=True,subplot=True):
     signals, rpeak = avg_segment(file, method='average', plot=False)
     location = denpendent_delineate(signals,rpeak,sampling_rate=sample_rate, plot=plot, subplot=subplot)
-    return location
+    return location, signals
 
 
 def delineate(file,lead='I',start=None,end=None,location=None,sampling_rate=500,plot_type='line'):
@@ -95,6 +97,7 @@ def R_peak(file,sampling_rate=500,lead='I',plot=False):
     if lead in ['V1','V2','V3']:
         df[lead] = df[lead].map(lambda x:-x)
     df = filtered(df,lead)
+    df['filtered'] = df['filtered'].map(lambda x: np.abs(x))
     df['gradient'] = abs(np.gradient(df['filtered']))
     R_peak_min = max(df['gradient']) * 0.35
     r = max(df['filtered'])*0.3
@@ -124,10 +127,11 @@ def R_peak(file,sampling_rate=500,lead='I',plot=False):
                         if (len(peaks)==0 or peaks[-1]+T < maxidx) and seg[maxidx] > r:
                             peaks.append(maxidx)
                             if len(peaks) > 1:
-                                T = int((peaks[-1] - peaks[0]) / (len(peaks) - 1) / 2)
+                                T = int((peaks[-1] - peaks[0]) / (len(peaks) - 1) / 1.5)
                     peak = []
                 else:
-                    peak.append(idx)
+                    if df['filtered'][idx] > r:
+                        peak.append(idx)
 
         #if v==R_peak_min:
         #    r_idx.append(idx)
@@ -140,11 +144,11 @@ def R_peak(file,sampling_rate=500,lead='I',plot=False):
         ymin = min(file[lead])-10
         plt.figure(figsize=(12,5))
         plt.plot(file[lead],label=lead)
-        #plt.plot(df['filtered'],color='yellow')
-        #plt.plot(df['gradient'],color='pink',label='gradient')
-        #plt.plot(df['R'], color='green',label='R')
+        plt.plot(df['filtered'],color='yellow')
+        # plt.plot(df['gradient'],color='pink',label='gradient')
+        # plt.plot(df['R'], color='green',label='R')
         plt.vlines(peaks,ymin,ymax,colors='red',linestyles="dashed",label='R_peak')
-        #plt.axhline(y=r)
+        # plt.axhline(y=r)
         plt.legend()
         plt.show()
     return np.array(peaks)
@@ -166,19 +170,34 @@ def baseline_drift(file,lead='I',sampling_rate=500,plot=False):
 
 def avg_segment(file,method='average',lead='all',sampling_rate=500,plot=True):
     df = file.copy()
-    if plot:
-        plt.figure(figsize=(12, 5))
-        plt.xlabel("Time (s)")
-        plt.title('avg_segment')
+    # 防止有些数据不行
+    rpeaks_lst = []
+    for column in ['I','II']:
+        rpeaks = R_peak(df, sampling_rate=sampling_rate, lead=column, plot=False)
+        rpeaks_lst.append(len(rpeaks))
+    if abs(rpeaks_lst[0] - rpeaks_lst[1]) <= 1:
+        pass
+    else:
+        rpeaks_lst = []
+        rpeaks_store = []
+        for column in df.columns:
+            rpeaks = R_peak(df, sampling_rate=sampling_rate, lead=column, plot=False)
+            rpeaks_lst.append(len(rpeaks))
+            rpeaks_store.append(rpeaks)
+        idx = stats.mode(rpeaks_lst)[1][0]
+        rpeaks = rpeaks_store[idx]
+        del rpeaks_store
+    rpeaks0 = rpeaks[:-1]
+    rpeaks1 = rpeaks[1:]
+    idxpred = int(0.5 * np.mean(rpeaks1 - rpeaks0))
     if lead=='all':
-        r = []
-        rpeaks = R_peak(df, sampling_rate=sampling_rate, lead='I', plot=False)
-        rpeaks0 = rpeaks[:-1]
-        rpeaks1 = rpeaks[1:]
-        idxpred = int(0.5 * np.mean(rpeaks1 - rpeaks0))
+        if plot:
+            fig = go.Figure()
+        r = {}
         for lead in df.columns:
             df = baseline_drift(df, lead, sampling_rate)
             ecg_signal = df['clean']
+            #ecg_signal = df[lead]
             epochs_start, epochs_end, epochs = _ecg_segment_window(
                 ecg_signal=ecg_signal, rpeaks=rpeaks, sampling_rate=sampling_rate
             )
@@ -187,28 +206,28 @@ def avg_segment(file,method='average',lead='all',sampling_rate=500,plot=True):
                 avg = np.mean(epochs,axis=0)
             elif method == 'med':
                 avg = np.median(epochs,axis=0)
-            r.append(avg)
+            r[lead.upper()] = avg
             if plot:
-                plt.plot(x_idx,avg,label=lead)
+                fig.add_trace(go.Scatter(x=x_idx, y=avg, mode='lines', name=lead))
         if plot:
-            plt.legend()
-            plt.show()
+            fig.show()
         return r, idxpred
     elif lead in df.columns:
-        epochs_start, epochs_end, epochs, _ = segment(df, method='base', lead=lead, sampling_rate=sampling_rate, plot=False)
-        rpeaks = R_peak(df, sampling_rate=sampling_rate, lead=lead, plot=False)
+        df = baseline_drift(df, lead, sampling_rate)
+        ecg_signal = df['clean']
+        #ecg_signal = df[lead]
+        epochs_start, epochs_end, epochs = _ecg_segment_window(
+            ecg_signal=ecg_signal, rpeaks=rpeaks, sampling_rate=sampling_rate
+        )
         x_idx = np.linspace(epochs_start, epochs_end, len(epochs[0]))
-        rpeaks0 = rpeaks[:-1]
-        rpeaks1 = rpeaks[1:]
-        idxpred = int(0.5 * np.mean(rpeaks1 - rpeaks0))
         if method == 'average':
-            avg = np.mean(epochs,axis=0)
+            avg = np.mean(epochs, axis=0)
         elif method == 'med':
-            avg = np.median(epochs,axis=0)
+            avg = np.median(epochs, axis=0)
         if plot:
-            plt.plot(x_idx,avg,linewidth =2.0,label=lead)
-            plt.legend()
-            plt.show()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=x_idx,y=avg,mode='lines',name=lead))
+            fig.show()
         return avg, idxpred
 
 def segment(file, method='base', lead='I', locate=False, r=None,sampling_rate=500, plot=True):
