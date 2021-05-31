@@ -46,8 +46,8 @@ r = ecg.avg_segment(df,method='median',lead='V4')
 ```
 ![center](./image/avg_segment_v4.png)
 
-#### locate P QRS T waves
-many thanks to *https://github.com/caledezma/WTdelineator*   
+#### locate P QRS T waves 效果不佳，暂不用
+thanks to *https://github.com/caledezma/WTdelineator*   
 - **Cardiac Cycle**: A typical ECG heartbeat consists of a P wave, a QRS complex and a T wave.
       The P wave represents the wave of depolarization that spreads from the SA-node throughout the atria.
       The QRS complex reflects the rapid depolarization of the right and left ventricles. Since the

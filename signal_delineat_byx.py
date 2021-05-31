@@ -14,6 +14,52 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy import signal
 
+def indenpendent_delineate(signals, rpeaks, sampling_rate=500, plot=True):
+    locations = {}
+    if plot:
+        fig = go.Figure()
+    for i in range(len(signals)):
+        try:
+            signal = np.array(signals[i])
+            rpeak = rpeaks[i]
+            if signal[rpeak] < 0:
+                gra1 = np.gradient(signal)
+                if gra1[rpeak] < 0:
+                    mingra1 = np.argmin(gra1)
+                    for idx in range(mingra1, mingra1 // 2, -1):
+                        if gra1[idx] < 0 and gra1[idx - 1] > 0:
+                            rpeak = idx
+                            break
+            Q = _delineate_Q(signal, rpeak)
+            Ppeak = _delineate_Ppeak(signal, rpeak)
+            Poff = _delineate_Poff(signal, rpeak)
+            Pon = _delineate_Pon(signal, rpeak)
+            QRSon = _delineate_QRSon(signal, rpeak, Poff)
+            if QRSon is np.nan:
+                QRSon = Q
+            QRSoff = _delineate_QRSoff(signal, rpeak, QRSon, Pon)
+            Tpeak = _delineate_Tpeak(signal, QRSoff)
+            Toff = _delineate_Toff(signal, rpeak, QRSoff, Tpeak)
+            location = {"Poff": Poff, "Pon": Pon, "QRSon": QRSon, "QRSoff": QRSoff, "Toff": Toff, "Rpeak": rpeak}
+            locations[i] = location
+            if plot == True:
+                x = np.linspace(0, len(signal), len(signal))
+                show_node = [Poff, Pon, QRSon, Toff, Toff, QRSoff]
+                fig.add_trace(go.Scatter(x=x, y=signal,
+                                         mode='lines',
+                                         name=i))
+                fig.add_vline(x=show_node[0], line_dash="dash", annotation_text="Poff")
+                fig.add_vline(x=show_node[1], line_dash="dash", annotation_text="Pon")
+                fig.add_vline(x=show_node[2], line_dash="dash", annotation_text="QRSon")
+                fig.add_vline(x=show_node[-1], line_dash="dash", annotation_text="QRSoff")
+                fig.add_vline(x=show_node[3], line_dash="dash", annotation_text="Toff")
+        except Exception as e:
+            print(i,e)
+    if plot:
+        fig.show()
+    return locations
+
+
 def denpendent_delineate(signals, rpeak, sampling_rate=500, plot=True, subplot=True):
     """
     :param signals: signal including I,II,V1,V2,V5
@@ -44,8 +90,11 @@ def denpendent_delineate(signals, rpeak, sampling_rate=500, plot=True, subplot=T
     if QRSon is np.nan:
         QRSon = Q
     QRSoff = _delineate_QRSoff(v5, rpeak, QRSon, Pon)
-    Tpeak = _delineate_Tpeak(r1, QRSoff)
-    Toff = _delineate_Toff(v2, rpeak, QRSoff, Tpeak)
+    Tpeak_v3 = _delineate_Tpeak(v3, QRSoff)
+    Toff_v3 = _delineate_Toff(v3, rpeak, QRSoff, Tpeak_v3)
+    Tpeak_v2 = _delineate_Tpeak(v2, QRSoff)
+    Toff_v2 = _delineate_Toff(v2, rpeak, QRSoff, Tpeak_v2)
+    Toff = int(np.mean([Toff_v2,Toff_v3]))
     location = {"Poff":Poff,"Pon":Pon,"QRSon":QRSon,"QRSoff":QRSoff,"Toff":Toff,"Rpeak":rpeak}
     if plot==True:
         Y = [r1, r2, v1, v2, v3, v5, v4]
@@ -56,7 +105,7 @@ def denpendent_delineate(signals, rpeak, sampling_rate=500, plot=True, subplot=T
         if subplot==True:
             _plot_delineate(x, Y, name,show_node,node_name,subplot=True)
         else:
-            _plot_delineate(x, Y, name, show_node, node_name, subplot=False)
+            _plot_delineate(x, signals, name, show_node, node_name, subplot=False)
     return location
 
 def _plot_delineate(x,Y,name,show_node,node_name,subplot=True):
@@ -86,16 +135,17 @@ def _plot_delineate(x,Y,name,show_node,node_name,subplot=True):
         fig.show()
     else:
         fig = go.Figure()
-        for i in range(len(name)):
+        for i in Y.keys():
             fig.add_trace(go.Scatter(x=x, y=Y[i],
                                      mode='lines',
-                                     name=name[i]))
+                                     name=i))
         fig.add_vline(x=show_node[0], line_dash="dash", annotation_text="Poff")
         fig.add_vline(x=show_node[1], line_dash="dash", annotation_text="Pon")
         fig.add_vline(x=show_node[2], line_dash="dash", annotation_text="QRSon")
         fig.add_vline(x=show_node[-1], line_dash="dash", annotation_text="QRSoff")
         fig.add_vline(x=show_node[3], line_dash="dash", annotation_text="Toff")
         fig.show()
+
 def _delineate_Poff(seg,rpeak):
     ppeak = _delineate_Ppeak(seg,rpeak)
     Q = _delineate_Q(seg,rpeak)
@@ -107,8 +157,20 @@ def _delineate_Poff(seg,rpeak):
     return idx
 
 def _delineate_Tpeak(seg,QRSoff):
-    seg = signal.detrend(seg[QRSoff:])
-    idx = np.argmax(seg) + QRSoff
+    seg1 = signal.detrend(seg[QRSoff:])
+    gra1 = np.gradient(seg1)
+    gra2 = np.gradient(gra1)
+    for start in range(0,len(gra1)): #sampling_rate
+        if gra2[start] < 0.1 and gra2[start] > -0.1:
+            break
+    #print('start',start)
+    seg = signal.detrend(seg[QRSoff+start:])
+    if np.argmax(gra1[start:]) > np.argmin(gra1[start:]):
+        #print('min')
+        idx = np.argmin(seg) + QRSoff +start
+    else:
+        #print('max')
+        idx = np.argmax(seg) + QRSoff + start
     return idx
 
 def _delineate_Ppeak(seg,rpeak):
@@ -131,16 +193,13 @@ def _delineate_Pon(seg,rpeak):
 def _delineate_Toff(seg,rpeak,QRSoff,Tpeak):
     gra1 = np.gradient(seg)
     gra2 = np.gradient(gra1)
-    gra1_bottom = np.argmin(gra1[Tpeak:])+Tpeak
-    #print('grabottom',gra1_bottom)
-    #print('tpeak',Tpeak)
-    delta = abs(gra2-gra1)
-    delta = 1/delta
-    yuzhi = np.quantile(delta[Tpeak:],0.9)
-    idx = gra1_bottom
-    for idx in range(gra1_bottom,len(seg)):
-        if delta[idx] > yuzhi:
-            break
+    yuzhi= 0.2
+    count = 0
+    for idx in range(Tpeak,len(seg)):
+        if gra1[idx] < yuzhi and gra1[idx] > -yuzhi and idx > Tpeak+20: #sampling_rate=500
+            count += 1
+            if count == 2:
+                break
     return idx
 
 def _delineate_QRSoff(seg,rpeak,QRSon,Pon):
@@ -150,8 +209,8 @@ def _delineate_QRSoff(seg,rpeak,QRSon,Pon):
     gra3 = np.gradient(gra2)
     gra2bottom = np.argmin(gra2)
     gra2peak = np.argmax(gra2[gra2bottom:])+gra2bottom
-    idx = np.argmax(gra3[gra2peak+1:gra2peak+t])+gra2peak
-    return idx+2 #delay
+    idx = np.argmin(gra2[gra2peak+1:gra2peak+t])+gra2peak
+    return idx+3 #delay
 
 
 def _delineate_QRSon(seg,rpeak,Poff):
@@ -164,7 +223,7 @@ def _delineate_QRSon(seg,rpeak,Poff):
     for idx in range(gra2peak,Poff,-1):
         if gra2[idx] < 0.2:
             break
-    if idx==gra2peak:
+    if idx == gra2peak:
         return np.nan
     return idx
 
