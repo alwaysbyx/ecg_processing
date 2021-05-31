@@ -94,7 +94,24 @@ According to *中华人民共和国医药行业标准 医用电气设备 第2-51
 # plot: True (automatically plot the signals and location boundaries)
 # return: information of [Pon,Poff,QRSon,QRSoff,Toff]
 import ecg
-location = ecg.ecg_delineate(df)
+location,signals = ecg.ecg_delineate(df)
 ```
 ![center](./image/delineate.png)
- 
+ ```python
+# 取消subplot，将所有导联并在一起观察
+location,signals = ecg.ecg_delineate(df,subplot=False)
+```
+![center](./image/delineate2.png)
+
+因为借助了plotly画图工具，可选择双击导联进行查看
+
+![center](./image/delineate4.png)
+ ```python
+# 针对每一个导联，将10s的ecg信号分割，对每一个单心拍作定位
+location,signals = = ecg.ecg_delineate(df,lead='I',subplot=False)
+```
+![center](./image/delineate3.png)
+
+如下图所示，location中包含了定位的位置信息，key代表该导联在10s中的第几个心拍
+
+![center](./image/delineate5.png)
