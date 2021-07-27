@@ -136,7 +136,7 @@ def _plot_delineate(x,Y,name,show_node,node_name,subplot=True):
     else:
         fig = go.Figure()
         for i in Y.keys():
-            fig.add_trace(go.Scatter(x=x, y=Y[i],
+            fig.add_trace(go.Scatter(x=x, y=Y[i] * 4.88 / 1000,
                                      mode='lines',
                                      name=i))
         fig.add_vline(x=show_node[0], line_dash="dash", annotation_text="Poff")
@@ -144,6 +144,13 @@ def _plot_delineate(x,Y,name,show_node,node_name,subplot=True):
         fig.add_vline(x=show_node[2], line_dash="dash", annotation_text="QRSon")
         fig.add_vline(x=show_node[-1], line_dash="dash", annotation_text="QRSoff")
         fig.add_vline(x=show_node[3], line_dash="dash", annotation_text="Toff")
+        fig['layout']['xaxis']['showgrid'] = False
+        fig['layout']['yaxis']['showgrid'] = False
+        fig['layout']["yaxis_title"] = "voltage(mV)"
+        fig['layout']["xaxis_title"] = "sample points"
+        fig['layout']['paper_bgcolor'] = 'rgba(0,0,0,0)'
+        fig['layout']['plot_bgcolor'] = 'rgba(0,0,0,0)'
+        fig.update_layout(font=dict(size=24))
         fig.show()
 
 def _delineate_Poff(seg,rpeak):
