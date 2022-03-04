@@ -1,4 +1,6 @@
 # package for processing the ecg signal 
+#### Paper
+One of the implementation for [Identifying Electrocardiogram Abnormalities Using a Handcrafted-Rule-Enhanced Neural Network](https://ieeexplore.ieee.org/document/9201039).
 
 #### prepare the data
 1. prepare the data as dataframe or dictionary(array)  
